@@ -1,13 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Text;
 
 namespace SiglusKeyFinder
 {
-    public class KeyFinder {
+    public class KeyFinder
+    {
         //A0 ? ? ? ?
         //MOV AL, OFF;
 
@@ -37,7 +37,8 @@ namespace SiglusKeyFinder
               ^-------
         */
 
-        public static Key[] ReadProcess(int PID) {
+        public static Key[] ReadProcess(int PID)
+        {
             Stream Memory = ProcessDump.OpenProcess(PID);
             Key[] Keys = ReadManually(Memory, (int)ProcessDump.BASEADDRESS);
             Memory.Close();
@@ -45,24 +46,20 @@ namespace SiglusKeyFinder
             return Keys;
         }
 
-        public static Key[] ReadManually(Stream Stream, int baseAddress) {
+        public static Key[] ReadManually(Stream Stream, int baseAddress)
+        {
             return Process(Stream, baseAddress);
         }
-        public static Key[] ReadFromPD(string ProcessDump) {
-            string[] arr = Path.GetFileNameWithoutExtension(ProcessDump).Split('_');
-            int Base;
-            try {
-                Base = int.Parse(arr[arr.Length - 1], System.Globalization.NumberStyles.HexNumber);
-            }
-            catch { return null; }
-            return Process(new StreamReader(ProcessDump).BaseStream, Base);
-        }
-        private static Key[] Process(Stream Memory, int BASEOFFSET) {
+
+        private static Key[] Process(Stream Memory, int BASEOFFSET)
+        {
             Result[] Results = Scan(Memory, Alg1Cmds, Algorithm.Type1);
             Result[] Results2 = Scan(Memory, Alg2Cmds, Algorithm.Type2);
             List<Key> Keys = new List<Key>();
             foreach (Result Result in Results.Concat(Results2))
-                switch (Result.Type) {
+            {
+                switch (Result.Type)
+                {
                     case Algorithm.Type1:
                         Keys.Add(Interpreter(Result.Buffer, new BinaryReader(Memory), Alg1Cmds, BASEOFFSET));
                         break;
@@ -70,17 +67,22 @@ namespace SiglusKeyFinder
                         Keys.Add(Interpreter(Result.Buffer, new BinaryReader(Memory), Alg2Cmds, BASEOFFSET));
                         break;
                 }
+            }
+
             return Keys.ToArray();
         }
 
-        private static Key Interpreter(byte[] buffer, BinaryReader Mem, Command[] Cmds, int BASEOFFSET) {
+        private static Key Interpreter(byte[] buffer, BinaryReader Mem, Command[] Cmds, int BASEOFFSET)
+        {
             RegisterEmu Reg = new RegisterEmu();
             Dictionary<int, byte> Stack = new Dictionary<int, byte>();
-            for (int i = 0, StepPos = 0; StepPos < Cmds.Length; StepPos++) {
+            for (int i = 0, StepPos = 0; StepPos < Cmds.Length; StepPos++)
+            {
                 Command Step = Cmds[StepPos];
                 Register REG;
                 int Pointer;
-                switch (Step) {
+                switch (Step)
+                {
                     case Command.MOVXZ:
                         REG = ((Register)buffer[i + 2]);
                         Pointer = GetDW(buffer, i + 3) - BASEOFFSET;
@@ -117,12 +119,16 @@ namespace SiglusKeyFinder
         }
 
         private static int GetDW(byte[] Buff, int pos) => Tools.int32(new byte[] { Buff[pos], Buff[pos + 1], Buff[pos + 2], Buff[pos + 3] });
-        enum Command {
+
+        private enum Command
+        {
             MOVXZ, MOV_L, MOV_M, MOV_S, MOV_ESI
         }
 
-        private static int GetLen(Command Type) { 
-            switch (Type){
+        private static int GetLen(Command Type)
+        {
+            switch (Type)
+            {
                 case Command.MOV_L:
                 case Command.MOVXZ:
                     return 7;
@@ -137,7 +143,8 @@ namespace SiglusKeyFinder
             }
         }
 
-        static Command[] Alg1Cmds = new Command[] {
+        private static Command[] Alg1Cmds = new Command[]
+        {
                 Command.MOVXZ, Command.MOVXZ,
                 Command.MOVXZ, Command.MOV_L,
                 Command.MOVXZ, Command.MOV_L,
@@ -154,9 +161,10 @@ namespace SiglusKeyFinder
                 Command.MOVXZ, Command.MOV_L,
                 Command.MOVXZ, Command.MOV_L,
                 Command.MOV_L, Command.MOV_L
-            };
+        };
 
-        static Command[] Alg2Cmds = new Command[] {
+        private static Command[] Alg2Cmds = new Command[]
+        {
             Command.MOV_M, Command.MOV_S,
             Command.MOV_M, Command.MOV_S,
             Command.MOV_M, Command.MOV_S,
@@ -176,40 +184,52 @@ namespace SiglusKeyFinder
             Command.MOV_S
         };
 
-        private static Result[] Scan(Stream Mem, Command[] Cmds, Algorithm Type) {
+        private static Result[] Scan(Stream Mem, Command[] Cmds, Algorithm Type)
+        {
             List<Result> Results = new List<Result>();
             byte Header = GetCmdByte(Cmds[0]);
-            for (long i = 0; i < Mem.Length - 1024; i = Mem.Position) {
+            for (long i = 0; i < Mem.Length - 1024; i = Mem.Position)
+            {
                 byte[] Buffer = new byte[1024];
                 Mem.Read(Buffer, 0, Buffer.Length);
                 bool Found = SearchByte(ref Mem, Buffer, Header);
 
-                if (Found) {
+                if (Found)
+                {
                     Buffer = new byte[300];
                     Peek(ref Buffer, Mem);
-                    if (AlgValidate(Buffer, Cmds)) {
-                        Results.Add(new Result() {
+                    if (AlgValidate(Buffer, Cmds))
+                    {
+                        Results.Add(new Result()
+                        {
                             Buffer = Buffer,
                             Type = Type
                         });
                         Mem.Position += GetAlgLen(Cmds);
-                    } else
+                    }
+                    else
+                    {
                         Mem.Position++;
+                    }
                 }
             }
             Mem.Position = 0;
             return Results.ToArray();
         }
 
-        private static void Peek(ref byte[] Buffer, Stream Mem) {
+        private static void Peek(ref byte[] Buffer, Stream Mem)
+        {
             long pos = Mem.Position;
             Mem.Read(Buffer, 0, Buffer.Length);
             Mem.Position = pos;
         }
 
-        private static bool SearchByte(ref Stream Mem, byte[] Buffer, byte Byte) {
-            for (int x = 0; x < Buffer.Length; x++) {
-                if (Buffer[x] == Byte) {
+        private static bool SearchByte(ref Stream Mem, byte[] Buffer, byte Byte)
+        {
+            for (int x = 0; x < Buffer.Length; x++)
+            {
+                if (Buffer[x] == Byte)
+                {
                     Mem.Position -= Buffer.Length;
                     Mem.Position += x;
                     Mem.Flush();
@@ -219,8 +239,10 @@ namespace SiglusKeyFinder
             return false;
         }
 
-        private static byte GetCmdByte(Command Cmd) {
-            switch (Cmd) {
+        private static byte GetCmdByte(Command Cmd)
+        {
+            switch (Cmd)
+            {
                 case Command.MOVXZ:
                     return 0x0F;
                 case Command.MOV_L:
@@ -234,48 +256,60 @@ namespace SiglusKeyFinder
                     throw new Exception("Unsupported Command");
             }
         }
-        private static int GetAlgLen(Command[] Cmds) {
+
+        private static int GetAlgLen(Command[] Cmds)
+        {
             int LEN = 0;
             foreach (Command cmd in Cmds)
+            {
                 LEN += GetLen(cmd);
+            }
+
             return LEN;
         }
 
-        private static bool AlgType1Test(byte[] Buffer) {
+        private static bool AlgValidate(byte[] Buffer, Command[] Cmds)
+        {
             int StepPos = 0;
-            for (int Pos = 0; StepPos < Alg1Cmds.Length; StepPos++) {
-                Command Step = Alg1Cmds[StepPos];
-                if (Step == Command.MOVXZ ? !Tools.isMOVZX(Buffer, Pos) : !Tools.isLongMOV(Buffer, Pos))
-                    return false;
-                Pos += GetLen(Step);
-            }
-            return true;
-        }
-
-        private static bool AlgValidate(byte[] Buffer, Command[] Cmds) {
-            int StepPos = 0;
-            for (int Pos = 0; StepPos < Cmds.Length; StepPos++) {
+            for (int Pos = 0; StepPos < Cmds.Length; StepPos++)
+            {
                 Command Step = Cmds[StepPos];
-                switch (Step) {
+                switch (Step)
+                {
                     case Command.MOVXZ:
                         if (!Tools.isMOVZX(Buffer, Pos))
+                        {
                             return false;
+                        }
+
                         break;
                     case Command.MOV_L:
                         if (!Tools.isLongMOV(Buffer, Pos))
+                        {
                             return false;
+                        }
+
                         break;
                     case Command.MOV_M:
                         if (!Tools.IsMOVAL(Buffer, Pos))
+                        {
                             return false;
+                        }
+
                         break;
                     case Command.MOV_ESI:
                         if (!Tools.IsMOVESI(Buffer, Pos))
+                        {
                             return false;
+                        }
+
                         break;
                     case Command.MOV_S:
                         if (!Tools.IsMOVDS(Buffer, Pos))
+                        {
                             return false;
+                        }
+
                         break;
                 }
                 Pos += GetLen(Step);
@@ -283,72 +317,81 @@ namespace SiglusKeyFinder
             return true;
         }
 
-        public class Key {
+        public class Key
+        {
             public byte[] KEY { get; private set; }
 
-            internal Key(byte[] KEY) {
+            internal Key(byte[] KEY)
+            {
                 this.KEY = KEY;
             }
-
-            public string KeyStr {
-                get {
-                    string Hex = string.Empty;
-                    for (int i = 0; i < KEY.Length; i++) {
-						string H = KEY[i].ToString("X");
-                        Hex += (H.Length == 1 ? "0x0" : "0x") + H + ", ";
-                    }
-                    return Hex.Substring(0, Hex.Length - 2);
-                }
-            }
         }
-        
 
-        private struct Result {
+
+        private struct Result
+        {
             public byte[] Buffer;
-            public Algorithm Type; 
+            public Algorithm Type;
         }
-        private enum Algorithm {
+
+        private enum Algorithm
+        {
             Type1, Type2
         }
     }
 
-
-    internal static class Tools {
-        internal static bool isMOVZX(byte[] Buff, int Pos) {
+    internal static class Tools
+    {
+        internal static bool isMOVZX(byte[] Buff, int Pos)
+        {
             byte b = Buff[Pos], b2 = Buff[Pos + 1], b3 = Buff[Pos + 2];
             return b == 0x0F && b2 == 0xB6 && (b3 == 0x5 || b3 == 0xD || b3 == 0x15);
         }
-        internal static bool isLongMOV(byte[] Buffer, int Pos) {
+        internal static bool isLongMOV(byte[] Buffer, int Pos)
+        {
             byte b = Buffer[Pos + 1];
             int h = b >> 4;
             int l = b & 0xF;
             return ((h >= 8 && h <= 0xB) && (l == 0x4 || l == 0xC)) && Buffer[Pos] == 0x88;
         }
-        internal static int int8(byte b) {
-            return sbyte.Parse(b.ToString("x"), System.Globalization.NumberStyles.HexNumber);
+        internal static int int8(byte b)
+        {
+            return sbyte.Parse(b.ToString("x"), NumberStyles.HexNumber);
         }
-        internal static int int32(byte[] arr) {
+        internal static int int32(byte[] arr)
+        {
             if (!BitConverter.IsLittleEndian)
+            {
                 Array.Reverse(arr, 0, arr.Length);
+            }
+
             int p = BitConverter.ToInt32(arr, 0);
             return p;
         }
 
-        internal static bool IsMOVAL(byte[] Buffer, int pos) {
+        internal static bool IsMOVAL(byte[] Buffer, int pos)
+        {
             return Buffer[pos] == 0xA0;
         }
-        internal static bool IsMOVDS(byte[] Buffer, int pos) {
+        internal static bool IsMOVDS(byte[] Buffer, int pos)
+        {
             return Buffer[pos] == 0x88 && !Tools.isLongMOV(Buffer, pos);
         }
-        internal static bool IsMOVESI(byte[] Buffer, int pos) {
+        internal static bool IsMOVESI(byte[] Buffer, int pos)
+        {
             return Buffer[pos] == 0x8B;
         }
     }
-    internal class RegisterEmu {
-        int EAX, ECX, EDX, EBX, ESP, EBP, ESI, EDI, EXTRA;
-        internal int this[Register Reg] {
-            get {
-                switch (Reg) {
+
+    internal class RegisterEmu
+    {
+        private int EAX, ECX, EDX, EBX, ESP, EBP, ESI, EDI, EXTRA;
+        internal int this[Register Reg]
+        {
+            get
+            {
+                switch (Reg)
+                {
                     case Register.EAX:
                         return EAX;
                     case Register.EBP:
@@ -379,8 +422,10 @@ namespace SiglusKeyFinder
                         throw new Exception("Unsupported Register");
                 }
             }
-            set {
-                switch (Reg) {
+            set
+            {
+                switch (Reg)
+                {
                     case Register.EAX:
                         EAX = value;
                         break;
@@ -426,7 +471,9 @@ namespace SiglusKeyFinder
             }
         }
     }
-    internal enum Register {
+
+    internal enum Register
+    {
         //MovZX
         EAX = 0x05, ECX = 0x0D,
         EDX = 0x15, EBX = 0x1D,
